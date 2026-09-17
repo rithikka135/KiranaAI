@@ -1,1 +1,554 @@
-Generic single-database configuration.
+# KiranaAI — Supermarket Operations Agent
+
+KiranaAI is a Telegram-based AI assistant designed to help Indian kirana store owners manage everyday supermarket operations through simple conversational messages.
+
+The system combines an AI agent, PostgreSQL database, business tools, and document generation to handle inventory, billing, customer credit, payments, daily sales, invoices, and weekly business analysis.
+
+## Features
+
+### 1. Inventory Management
+
+* Check current stock
+* Receive new stock
+* Track product quantity
+* Maintain selling price and cost price
+* Configure reorder levels
+* Store GST rates
+* Store HSN information
+* Prevent invalid selling prices below cost
+* Prevent selling more quantity than available stock
+* Use database row locking for safe concurrent stock updates
+
+### 2. Billing
+
+KiranaAI supports multi-turn conversational billing.
+
+Example:
+
+```text
+Owner: Start a bill
+
+KiranaAI: Bill #18 created.
+
+Owner: Add 2 kg sugar
+
+KiranaAI: Added 2 kg White Sugar @ ₹50/kg.
+
+Owner: Add 1 packet biscuits
+
+KiranaAI: Added 1 packet Parle-G Biscuits @ ₹10.
+
+Owner: Show the bill
+
+KiranaAI:
+Subtotal: ₹110.00
+CGST: ₹2.75
+SGST: ₹2.75
+Total: ₹115.50
+
+Owner: Set payment method as cash
+
+Owner: Finalize the bill
+```
+
+The system:
+
+* Creates draft bills
+* Adds multiple products
+* Supports multi-turn bill editing
+* Calculates GST
+* Stores HSN information
+* Supports cash, UPI, card and credit payments
+* Validates stock before finalization
+* Deducts inventory atomically during finalization
+* Prevents invalid quantities
+* Persists billing data in PostgreSQL
+
+### 3. Customer & Khata Management
+
+The customer management agent handles customer-related operations.
+
+Supported operations:
+
+* Add customers
+* Search customers
+* Find customer details
+* Check Khata balance
+* Record Khata payments
+* Track outstanding customer balances
+
+Example:
+
+```text
+Owner: Add customer Ravi
+
+KiranaAI:
+Customer added successfully!
+
+Name: Ravi
+Customer ID: 2
+```
+
+Khata payment example:
+
+```text
+Owner: Ravi paid 100
+
+KiranaAI:
+Khata payment recorded!
+
+Customer: Ravi
+Amount paid: ₹100.00
+Remaining balance: ₹367.00
+```
+
+Customer balances are stored persistently in PostgreSQL.
+
+### 4. GST Invoice Generation
+
+After a bill is finalized, KiranaAI can generate a GST invoice PDF.
+
+The invoice contains billing information including:
+
+* Products
+* Quantities
+* Prices
+* Subtotal
+* CGST
+* SGST
+* Total GST
+* Final bill amount
+* Payment method
+
+Generated invoices are stored in:
+
+```text
+generated_invoices/
+```
+
+### 5. Daily Sales & Day Close
+
+The agent can provide daily business information such as:
+
+* Number of bills
+* Total sales
+* Cash sales
+* UPI sales
+* Card sales
+* Credit sales
+* GST collected
+* Customer credit information
+* Best-selling products
+* Low-stock products
+
+Example:
+
+```text
+Owner: How much did I sell today?
+```
+
+The agent retrieves the information from PostgreSQL rather than generating values from memory.
+
+### 6. Weekly Business Analysis
+
+KiranaAI can generate a weekly business analysis presentation.
+
+The analysis includes real database information and charts covering areas such as:
+
+* Sales performance
+* Payment methods
+* Product performance
+* Inventory information
+* Business trends
+
+Generated presentations are stored in:
+
+```text
+generated_analysis/
+```
+
+### 7. Owner Preferences & Memory
+
+KiranaAI supports persistent owner preferences and memory.
+
+This allows useful business preferences to be stored and retrieved rather than relying only on the current conversation.
+
+### 8. Telegram Integration
+
+The system is designed to work through Telegram.
+
+The owner can send natural-language messages such as:
+
+```text
+Check sugar stock
+```
+
+```text
+Receive 10 kg sugar
+```
+
+```text
+Start a bill
+```
+
+```text
+Add 2 kg sugar
+```
+
+```text
+Finalize the bill
+```
+
+```text
+Find Ravi
+```
+
+```text
+What is Ravi's balance?
+```
+
+```text
+Ravi paid 100
+```
+
+The Telegram bot processes the request and sends the result back to the owner.
+
+## System Architecture
+
+```text
+                    Telegram
+                       │
+                       ▼
+                ┌──────────────┐
+                │  AI Agent    │
+                │   Qwen3 4B   │
+                └──────┬───────┘
+                       │
+              ┌────────┴─────────┐
+              │                  │
+              ▼                  ▼
+      Inventory/Billing     Customer Agent
+              │                  │
+              └────────┬─────────┘
+                       │
+                       ▼
+                Business Tools
+                       │
+                       ▼
+                Service Layer
+                       │
+                       ▼
+                 PostgreSQL
+                       │
+              ┌────────┴─────────┐
+              ▼                  ▼
+        Invoice PDF         Weekly PPTX
+```
+
+## Technology Stack
+
+### Backend
+
+* Python
+* SQLAlchemy
+* Alembic
+* PostgreSQL
+
+### AI
+
+* Ollama
+* Qwen3 4B
+* Tool-based AI agent architecture
+
+### Telegram
+
+* Python Telegram Bot
+
+### Documents
+
+* PDF invoice generation
+* PPTX weekly business analysis
+* Charts and data visualization
+
+### Database
+
+PostgreSQL is used for persistent storage of:
+
+* Products
+* Inventory
+* Bills
+* Bill items
+* Customers
+* Khata entries
+* Payments
+* Owner preferences
+* Business records
+
+## Project Structure
+
+```text
+KiranaAI/
+│
+├── alembic/
+│   └── migrations
+│
+├── app/
+│   ├── agent/
+│   │   ├── inventory_agent.py
+│   │   ├── customer_agent.py
+│   │   └── router.py
+│   │
+│   ├── database/
+│   │   └── database configuration
+│   │
+│   ├── models/
+│   │   └── database models
+│   │
+│   ├── services/
+│   │   └── business logic
+│   │
+│   ├── tools/
+│   │   └── agent tools
+│   │
+│   ├── documents/
+│   │   └── invoice and analysis generation
+│   │
+│   └── telegram/
+│       └── bot.py
+│
+├── generated_analysis/
+│
+├── generated_invoices/
+│
+├── tests/
+│
+├── alembic.ini
+├── requirements.txt
+└── README.md
+```
+
+## Installation
+
+### 1. Clone the repository
+
+```bash
+git clone <YOUR_GITHUB_REPOSITORY_URL>
+cd KiranaAI
+```
+
+### 2. Create a virtual environment
+
+Windows:
+
+```powershell
+python -m venv .venv
+```
+
+Activate it:
+
+```powershell
+.venv\Scripts\activate
+```
+
+### 3. Install dependencies
+
+```powershell
+pip install -r requirements.txt
+```
+
+### 4. Configure environment variables
+
+Create a `.env` file:
+
+```text
+DATABASE_URL=your_postgresql_connection_string
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+```
+
+Do not commit the real `.env` file to GitHub.
+
+### 5. Start PostgreSQL
+
+PostgreSQL can be run using Docker.
+
+Example:
+
+```powershell
+docker run --name kiranaai-postgres `
+  -e POSTGRES_USER=postgres `
+  -e POSTGRES_PASSWORD=postgres `
+  -e POSTGRES_DB=kiranaai `
+  -p 5432:5432 `
+  -d postgres:16
+```
+
+### 6. Run database migrations
+
+```powershell
+alembic upgrade head
+```
+
+### 7. Start the Telegram bot
+
+```powershell
+python -m app.telegram.bot
+```
+
+The bot can then be accessed through Telegram.
+
+## Example Operations
+
+### Inventory
+
+```text
+Check sugar stock
+```
+
+```text
+Receive 5 kg sugar
+```
+
+### Billing
+
+```text
+Start a bill
+```
+
+```text
+Add 2 kg sugar
+```
+
+```text
+Add 1 packet biscuits
+```
+
+```text
+Show the bill
+```
+
+```text
+Set payment method as cash
+```
+
+```text
+Finalize the bill
+```
+
+### Customer Management
+
+```text
+Add customer Ravi
+```
+
+```text
+Find Ravi
+```
+
+```text
+What is Ravi's balance?
+```
+
+```text
+Ravi paid 100
+```
+
+### Sales
+
+```text
+How much did I sell today?
+```
+
+```text
+Show my day close
+```
+
+## Data Integrity & Safety
+
+KiranaAI includes several safeguards for supermarket operations:
+
+* Stock availability validation
+* Overselling prevention
+* Selling-price validation
+* GST calculation
+* Atomic bill finalization
+* PostgreSQL transactions
+* Row-level locking using `FOR UPDATE`
+* Persistent database storage
+* Telegram update idempotency
+* Customer payment validation
+* Khata overpayment prevention
+
+These controls help prevent inconsistent inventory, billing, and customer-credit records.
+
+## Testing
+
+The project includes tests under:
+
+```text
+tests/
+```
+
+Core functionality was tested for:
+
+* Inventory operations
+* Stock receiving
+* Stock validation
+* Billing
+* GST calculation
+* Bill finalization
+* Inventory deduction
+* Customer creation
+* Customer search
+* Customer balance
+* Khata payments
+* Invoice generation
+* Telegram interaction
+
+## Example GST Calculation
+
+For a product worth ₹150 with 5% GST:
+
+```text
+Subtotal = ₹150.00
+
+CGST = ₹3.75
+SGST = ₹3.75
+
+Total GST = ₹7.50
+
+Final Total = ₹157.50
+```
+
+## Security
+
+Sensitive credentials should be stored in environment variables.
+
+The following should never be committed to the public repository:
+
+```text
+.env
+Telegram bot tokens
+API keys
+Database passwords
+Private credentials
+```
+
+A `.env.example` file can be used to show the required configuration.
+
+## Project Goal
+
+The goal of KiranaAI is to provide a simple conversational interface for supermarket owners so that common store operations can be performed without requiring a separate web dashboard or complex forms.
+
+Instead of navigating multiple screens, the owner can interact with the system using natural-language Telegram messages.
+
+## Assignment
+
+Developed as part of the **Nebula KnowLab Supermarket Ops Agent** assignment.
+
+**Project:** KiranaAI — Supermarket Operations Agent
+
+**Interface:** Telegram
+
+**Database:** PostgreSQL
+
+**AI Model:** Qwen3 4B via Ollama
