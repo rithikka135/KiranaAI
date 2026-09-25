@@ -1,4 +1,7 @@
-from ollama import chat
+import os
+import re
+
+from ollama import Client
 
 from app.database.connection import SessionLocal
 
@@ -39,6 +42,18 @@ from app.tools.billing_tools import sell_product_tool
 
 
 # ============================================================
+# OLLAMA CLOUD CLIENT
+# ============================================================
+
+ollama_client = Client(
+    host="https://ollama.com",
+    headers={
+        "Authorization": f"Bearer {os.getenv('OLLAMA_API_KEY')}"
+    }
+)
+
+
+# ============================================================
 # INVENTORY TOOL WRAPPER
 # ============================================================
 
@@ -60,7 +75,7 @@ def check_stock_tool(product_name: str) -> dict:
 
 # ============================================================
 # LEGACY PAYMENT DETECTION
-# Used only by the old one-shot sell_product_tool
+# Used only by old one-shot sell_product_tool
 # ============================================================
 
 def detect_payment_method(user_message: str) -> str:
@@ -111,234 +126,468 @@ def detect_customer_name(user_message: str) -> str:
 
 
 # ============================================================
+# SIMPLE GREETING DETECTION
+# ============================================================
+
+def is_greeting(user_message: str) -> bool:
+
+    message = user_message.strip().lower()
+
+    # Remove common punctuation
+    message = re.sub(
+        r"[!,.?]+",
+        "",
+        message
+    ).strip()
+
+    greetings = {
+        "hi",
+        "hello",
+        "hey",
+        "hii",
+        "hiii",
+        "helo",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "good night",
+    }
+
+    return message in greetings
+
+
+# ============================================================
+# GREETING RESPONSE
+# ============================================================
+
+def greeting_response() -> str:
+
+    return (
+        "Hello! 👋\n\n"
+        "I can help you manage the grocery store with:\n"
+        "• Inventory and stock\n"
+        "• Bills and sales\n"
+        "• Customer Khata\n"
+        "• GST invoices\n"
+        "• Daily and weekly reports\n\n"
+        "What would you like to do?"
+    )
+
+
+# ============================================================
+# GET CURRENT BILL CONTEXT
+# ============================================================
+
+def get_bill_context() -> str:
+
+    try:
+
+        result = get_current_bill_tool()
+
+        if result.get("success"):
+
+            bill_id = result.get(
+                "bill_id"
+            )
+
+            items = result.get(
+                "items",
+                []
+            )
+
+            payment_method = result.get(
+                "payment_method"
+            )
+
+            total = result.get(
+                "total"
+            )
+
+            if items:
+
+                item_text = []
+
+                for item in items:
+
+                    item_text.append(
+                        f"{item.get('quantity')} "
+                        f"{item.get('unit')} "
+                        f"{item.get('product_name')}"
+                    )
+
+                items_description = ", ".join(
+                    item_text
+                )
+
+            else:
+
+                items_description = "no items yet"
+
+            if payment_method:
+
+                payment_status = (
+                    f"Payment method is already selected: "
+                    f"{payment_method}."
+                )
+
+            else:
+
+                payment_status = (
+                    "No payment method has been selected yet."
+                )
+
+            total_text = (
+                f"Bill total: ₹{total}."
+                if total is not None
+                else ""
+            )
+
+            return (
+                f"There is currently an open draft bill "
+                f"#{bill_id}.\n"
+                f"Current items: {items_description}.\n"
+                f"{total_text}\n"
+                f"{payment_status}\n\n"
+
+                "If the owner provides a product and quantity, "
+                "add it to this existing bill using "
+                "add_to_current_bill_tool.\n"
+
+                "Do NOT start another bill unless the owner "
+                "explicitly asks for a NEW bill.\n\n"
+
+                "If a payment method is already selected, "
+                "do NOT ask the owner for the payment method "
+                "again.\n"
+
+                "If the owner asks to finalize, complete, or "
+                "finish this bill and a payment method is "
+                "already selected, immediately use "
+                "finalize_current_bill_tool."
+            )
+
+        return (
+            "There is currently no open draft bill."
+        )
+
+    except Exception as e:
+
+        print(
+            "Could not get current bill context:",
+            e
+        )
+
+        return (
+            "The current bill status is unavailable. "
+            "Follow the owner's explicit request."
+        )
+
+
+# ============================================================
 # MAIN AGENT
 # ============================================================
 
 def ask_agent(user_message: str) -> str:
 
-    print("1. Asking Qwen3...")
+    # ========================================================
+    # HANDLE SIMPLE GREETINGS DIRECTLY
+    # ========================================================
+
+    if is_greeting(user_message):
+
+        print(
+            "Greeting detected. "
+            "No AI tool call required."
+        )
+
+        return greeting_response()
+
+
+    # ========================================================
+    # CHECK CURRENT BILL
+    # ========================================================
+
+    print(
+        "1. Checking current bill..."
+    )
+
+    bill_context = get_bill_context()
+
+    print(
+        "Current bill context:",
+        bill_context
+    )
+
+
+    # ========================================================
+    # BUILD SYSTEM PROMPT
+    # ========================================================
+
+    system_prompt = (
+
+        "You are a supermarket operations assistant.\n\n"
+
+        "You help the grocery store owner with:\n"
+        "- checking inventory\n"
+        "- receiving stock\n"
+        "- adding new products\n"
+        "- creating and managing bills\n"
+        "- selling products\n"
+        "- customer Khata\n"
+        "- recording Khata payments\n"
+        "- generating GST invoices\n"
+        "- today's sales\n"
+        "- day close reports\n"
+        "- generating weekly sales analysis PowerPoint decks\n"
+        "- remembering owner preferences\n\n"
+
+
+        # ====================================================
+        # CURRENT BILL STATUS
+        # ====================================================
+
+        "CURRENT BILL STATUS:\n"
+        f"{bill_context}\n\n"
+
+        "IMPORTANT CURRENT BILL RULE:\n"
+        "The database is the source of truth for the current "
+        "bill.\n"
+        "If an open draft bill exists and the owner gives a "
+        "product name and quantity, add the product to the "
+        "existing bill.\n"
+        "Do NOT call start_bill_tool again just because the "
+        "owner gives another product and quantity.\n"
+        "Only call start_bill_tool when the owner explicitly "
+        "asks to start, create, open, or make a NEW bill.\n\n"
+
+
+        # ====================================================
+        # PRODUCT CREATION
+        # ====================================================
+
+        "PRODUCT CREATION RULES:\n\n"
+
+        "When the owner asks to add, create, register, "
+        "or introduce a NEW product, use "
+        "create_product_tool.\n\n"
+
+        "This tool is specifically for creating a product "
+        "that does not already exist.\n\n"
+
+        "Required product information:\n"
+        "- name\n"
+        "- category\n"
+        "- unit\n"
+        "- selling_price\n"
+        "- cost_price\n"
+        "- gst_rate\n"
+        "- hsn_code\n\n"
+
+        "Examples:\n"
+
+        "Add a new product Maggi 70g, selling price 10, "
+        "cost price 8, GST 5%, category snacks, "
+        "unit packet, HSN 19023000\n\n"
+
+        "Create a new product Rice 1kg, selling price 60, "
+        "cost price 50, GST 5%, category groceries, "
+        "unit packet, HSN 10063020\n\n"
+
+        "When the owner asks to create a NEW product, "
+        "do NOT use check_stock_tool.\n\n"
+
+        "When the owner asks to create a NEW product, "
+        "do NOT use receive_stock_tool.\n\n"
+
+        "check_stock_tool is only for checking an existing "
+        "product's current stock.\n\n"
+
+        "receive_stock_tool is only for adding stock to an "
+        "existing product.\n\n"
+
+
+        # ====================================================
+        # MULTI-TURN BILLING
+        # ====================================================
+
+        "MULTI-TURN BILLING RULES:\n\n"
+
+        "Use the multi-turn billing tools for normal "
+        "customer billing conversations.\n\n"
+
+        "When the owner says they want to start, create, "
+        "open, or make a NEW bill, use start_bill_tool.\n\n"
+
+        "Examples:\n"
+        "Start a bill\n"
+        "Create a new bill\n"
+        "Open a new bill\n"
+        "Make a new bill\n\n"
+
+        "When the owner gives a product and quantity for "
+        "the CURRENT bill, ALWAYS use "
+        "add_to_current_bill_tool.\n\n"
+
+        "Examples:\n"
+        "2 kg rice\n"
+        "2 packets of Maggi\n"
+        "Add 3 packets of biscuits\n"
+        "Put 1 litre oil in the bill\n"
+        "Add 2 soaps\n\n"
+
+        "A message containing only a product and quantity "
+        "such as '2 packets of Maggi' should be interpreted "
+        "as adding that product to the current bill when "
+        "a bill is already open.\n\n"
+
+        "If a current bill is already open, NEVER call "
+        "start_bill_tool for a product-and-quantity message.\n\n"
+
+        "Only call start_bill_tool when the owner explicitly "
+        "asks for a NEW bill.\n\n"
+
+        "When the owner asks to change or update the "
+        "quantity of an existing item, use "
+        "update_current_bill_item_tool.\n\n"
+
+        "Examples:\n"
+        "Change rice to 3 kg\n"
+        "Make sugar quantity 5 kg\n"
+        "Update oil quantity to 2 litres\n\n"
+
+        "When the owner asks to remove an item from the "
+        "current bill, use remove_from_current_bill_tool.\n\n"
+
+        "Examples:\n"
+        "Remove rice\n"
+        "Take sugar out of the bill\n"
+        "Remove the soap\n\n"
+
+        "When the owner asks for the bill, total, current "
+        "bill, bill summary, or amount, use "
+        "get_current_bill_tool.\n\n"
+
+        "Examples:\n"
+        "Show the bill\n"
+        "What's the total?\n"
+        "Show current bill\n"
+        "How much is the bill?\n"
+        "Give me the bill summary\n\n"
+
+        "When the owner specifies cash, UPI, or card for "
+        "the current bill, use set_bill_payment_tool.\n\n"
+
+        "Examples:\n"
+        "Cash\n"
+        "Payment is UPI\n"
+        "Customer paid by card\n"
+        "Set payment to UPI\n\n"
+
+        "Do not assume a payment method for the current "
+        "multi-turn bill unless the owner explicitly "
+        "provides it.\n\n"
+
+        "When the owner asks to finalize, complete, or "
+        "finish the current bill, use "
+        "finalize_current_bill_tool.\n\n"
+
+        "Do not finalize a bill unless a payment method "
+        "has been selected.\n\n"
+
+        "Draft bills do not reduce inventory.\n\n"
+
+        "Inventory is reduced only when the finalization "
+        "tool succeeds.\n\n"
+
+        "Do not use the old sell_product_tool for normal "
+        "multi-turn billing conversations when the owner "
+        "is building a bill across multiple messages.\n\n"
+
+
+        # ====================================================
+        # WEEKLY ANALYSIS
+        # ====================================================
+
+        "WEEKLY ANALYSIS RULES:\n"
+
+        "When the owner asks for a weekly sales report, "
+        "weekly sales analysis, business analysis, weekly "
+        "report, sales PowerPoint, PPT, PPTX, or analysis "
+        "deck, use generate_weekly_analysis_deck_tool.\n\n"
+
+        "The analysis tool generates the actual PowerPoint "
+        "file using the grocery store's sales and inventory "
+        "data.\n\n"
+
+        "Do not claim that you cannot generate PowerPoint "
+        "files. Use the analysis tool.\n\n"
+
+
+        # ====================================================
+        # OWNER MEMORY
+        # ====================================================
+
+        "OWNER MEMORY RULES:\n"
+
+        "When the owner says 'remember', 'save', 'store', "
+        "or clearly asks you to remember a grocery store "
+        "preference, use save_owner_preference.\n\n"
+
+        "Examples:\n"
+        "Remember that my shop opens at 8 AM.\n"
+        "Remember that my shop closes at 9 PM.\n"
+        "Remember that my preferred payment method is UPI.\n\n"
+
+        "Use simple preference keys such as:\n"
+        "shop_opening_time\n"
+        "shop_closing_time\n"
+        "preferred_payment_method\n\n"
+
+        "When the owner asks what you remember, what "
+        "preferences are saved, or asks for all saved "
+        "preferences, use get_owner_preferences.\n\n"
+
+        "When the owner asks about one specific preference, "
+        "use get_owner_preference.\n\n"
+
+        "When the owner says forget, remove, delete, or "
+        "stop remembering a preference, use "
+        "delete_owner_preference.\n\n"
+
+        "Do not invent saved preferences. Use the memory "
+        "tools to retrieve them."
+    )
+
 
     messages = [
+
         {
             "role": "system",
-            "content": (
-
-                "You are a supermarket operations assistant.\n\n"
-
-                "You help the supermarket owner with:\n"
-                "- checking inventory\n"
-                "- receiving stock\n"
-                "- adding new products\n"
-                "- creating and managing bills\n"
-                "- selling products\n"
-                "- customer Khata\n"
-                "- recording Khata payments\n"
-                "- generating GST invoices\n"
-                "- today's sales\n"
-                "- day close reports\n"
-                "- generating weekly sales analysis PowerPoint decks\n"
-                "- remembering owner preferences\n\n"
-
-
-                # ====================================================
-                # PRODUCT CREATION
-                # ====================================================
-
-                "PRODUCT CREATION RULES:\n\n"
-
-                "When the owner asks to add, create, register, "
-                "or introduce a NEW product, use "
-                "create_product_tool.\n\n"
-
-                "This tool is specifically for creating a product "
-                "that does not already exist.\n\n"
-
-                "Required product information:\n"
-                "- name\n"
-                "- category\n"
-                "- unit\n"
-                "- selling_price\n"
-                "- cost_price\n"
-                "- gst_rate\n"
-                "- hsn_code\n\n"
-
-                "Examples:\n"
-
-                "Add a new product Maggi 70g, selling price 10, "
-                "cost price 8, GST 5%, category snacks, "
-                "unit packet, HSN 19023000\n\n"
-
-                "Create a new product Rice 1kg, selling price 60, "
-                "cost price 50, GST 5%, category groceries, "
-                "unit packet, HSN 10063020\n\n"
-
-                "When the owner asks to create a NEW product, "
-                "do NOT use check_stock_tool.\n\n"
-
-                "When the owner asks to create a NEW product, "
-                "do NOT use receive_stock_tool.\n\n"
-
-                "check_stock_tool is only for checking an existing "
-                "product's current stock.\n\n"
-
-                "receive_stock_tool is only for adding stock to an "
-                "existing product.\n\n"
-
-
-                # ====================================================
-                # MULTI-TURN BILLING
-                # ====================================================
-
-                "MULTI-TURN BILLING RULES:\n\n"
-
-                "Use the multi-turn billing tools for normal "
-                "customer billing conversations.\n\n"
-
-                "When the owner says they want to start, create, "
-                "open, or make a bill, use start_bill_tool.\n\n"
-
-                "Examples:\n"
-                "Start a bill\n"
-                "Create a new bill\n"
-                "Open a bill\n"
-                "Make a bill\n\n"
-
-                "When the owner gives a product and quantity for "
-                "the current bill, use add_to_current_bill_tool.\n\n"
-
-                "Examples:\n"
-                "2 kg rice\n"
-                "Add 3 packets of biscuits\n"
-                "Put 1 litre oil in the bill\n"
-                "Add 2 soaps\n\n"
-
-                "When the owner asks to change or update the "
-                "quantity of an existing item, use "
-                "update_current_bill_item_tool.\n\n"
-
-                "Examples:\n"
-                "Change rice to 3 kg\n"
-                "Make sugar quantity 5 kg\n"
-                "Update oil quantity to 2 litres\n\n"
-
-                "When the owner asks to remove an item from the "
-                "current bill, use remove_from_current_bill_tool.\n\n"
-
-                "Examples:\n"
-                "Remove rice\n"
-                "Take sugar out of the bill\n"
-                "Remove the soap\n\n"
-
-                "When the owner asks for the bill, total, current "
-                "bill, bill summary, or amount, use "
-                "get_current_bill_tool.\n\n"
-
-                "Examples:\n"
-                "Show the bill\n"
-                "What's the total?\n"
-                "Show current bill\n"
-                "How much is the bill?\n"
-                "Give me the bill summary\n\n"
-
-                "When the owner specifies cash, UPI, or card for "
-                "the current bill, use set_bill_payment_tool.\n\n"
-
-                "Examples:\n"
-                "Cash\n"
-                "Payment is UPI\n"
-                "Customer paid by card\n"
-                "Set payment to UPI\n\n"
-
-                "Do not assume a payment method for the current "
-                "multi-turn bill unless the owner explicitly "
-                "provides it.\n\n"
-
-                "When the owner asks to finalize, complete, or "
-                "finish the current bill, use "
-                "finalize_current_bill_tool.\n\n"
-
-                "Do not finalize a bill unless a payment method "
-                "has been selected.\n\n"
-
-                "Draft bills do not reduce inventory.\n\n"
-
-                "Inventory is reduced only when the finalization "
-                "tool succeeds.\n\n"
-
-                "Do not use the old sell_product_tool for normal "
-                "multi-turn billing conversations when the owner "
-                "is building a bill across multiple messages.\n\n"
-
-
-                # ====================================================
-                # WEEKLY ANALYSIS
-                # ====================================================
-
-                "WEEKLY ANALYSIS RULES:\n"
-
-                "When the owner asks for a weekly sales report, "
-                "weekly sales analysis, business analysis, weekly "
-                "report, sales PowerPoint, PPT, PPTX, or analysis "
-                "deck, use generate_weekly_analysis_deck_tool.\n\n"
-
-                "The analysis tool generates the actual PowerPoint "
-                "file using the supermarket's sales and inventory "
-                "data.\n\n"
-
-                "Do not claim that you cannot generate PowerPoint "
-                "files. Use the analysis tool.\n\n"
-
-
-                # ====================================================
-                # OWNER MEMORY
-                # ====================================================
-
-                "OWNER MEMORY RULES:\n"
-
-                "When the owner says 'remember', 'save', 'store', "
-                "or clearly asks you to remember a shop preference, "
-                "use save_owner_preference.\n\n"
-
-                "Examples:\n"
-                "Remember that my shop opens at 8 AM.\n"
-                "Remember that my shop closes at 9 PM.\n"
-                "Remember that my preferred payment method is UPI.\n\n"
-
-                "Use simple preference keys such as:\n"
-                "shop_opening_time\n"
-                "shop_closing_time\n"
-                "preferred_payment_method\n\n"
-
-                "When the owner asks what you remember, what "
-                "preferences are saved, or asks for all saved "
-                "preferences, use get_owner_preferences.\n\n"
-
-                "When the owner asks about one specific preference, "
-                "use get_owner_preference.\n\n"
-
-                "When the owner says forget, remove, delete, or "
-                "stop remembering a preference, use "
-                "delete_owner_preference.\n\n"
-
-                "Do not invent saved preferences. Use the memory "
-                "tools to retrieve them."
-            ),
+            "content": system_prompt
         },
 
         {
             "role": "user",
             "content": user_message
         },
+
     ]
 
 
     # ============================================================
-    # QWEN TOOL DEFINITIONS
+    # ASK OLLAMA
     # ============================================================
 
-    response = chat(
-        model="qwen3:1.7b",
+    print(
+        "2. Asking Ollama..."
+    )
+
+    response = ollama_client.chat(
+
+        model="gpt-oss:20b",
+
         messages=messages,
+
         think=False,
 
         tools=[
@@ -407,15 +656,14 @@ def ask_agent(user_message: str) -> str:
     )
 
 
-    print("2. Qwen3 responded")
+    print(
+        "3. Ollama responded"
+    )
 
     print(
         "Tool calls:",
         response.message.tool_calls
     )
-
-
-    messages.append(response.message)
 
 
     # ============================================================
@@ -440,23 +688,11 @@ def ask_agent(user_message: str) -> str:
 
             if tool_name == "create_product_tool":
 
-                name = (
-                    tool_call.function.arguments[
-                        "name"
-                    ]
-                )
+                name = tool_call.function.arguments["name"]
 
-                category = (
-                    tool_call.function.arguments[
-                        "category"
-                    ]
-                )
+                category = tool_call.function.arguments["category"]
 
-                unit = (
-                    tool_call.function.arguments[
-                        "unit"
-                    ]
-                )
+                unit = tool_call.function.arguments["unit"]
 
                 selling_price = (
                     tool_call.function.arguments[
@@ -484,44 +720,8 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "3. Executing create product tool..."
+                    "4. Executing create product tool..."
                 )
-
-                print(
-                    "Product:",
-                    name
-                )
-
-                print(
-                    "Category:",
-                    category
-                )
-
-                print(
-                    "Unit:",
-                    unit
-                )
-
-                print(
-                    "Selling price:",
-                    selling_price
-                )
-
-                print(
-                    "Cost price:",
-                    cost_price
-                )
-
-                print(
-                    "GST:",
-                    gst_rate
-                )
-
-                print(
-                    "HSN:",
-                    hsn_code
-                )
-
 
                 result = create_product_tool(
 
@@ -538,19 +738,20 @@ def ask_agent(user_message: str) -> str:
                     gst_rate=gst_rate,
 
                     hsn_code=hsn_code,
+
                 )
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
+
                         "✅ Product created successfully!\n\n"
 
                         f"Product: "
@@ -576,6 +777,7 @@ def ask_agent(user_message: str) -> str:
 
                         f"HSN: "
                         f"{result['hsn_code']}"
+
                     )
 
 
@@ -599,12 +801,7 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "3. Executing stock check tool..."
-                )
-
-                print(
-                    "Product:",
-                    product_name
+                    "4. Executing stock check tool..."
                 )
 
 
@@ -614,20 +811,21 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
+
                         f"We currently have "
                         f"{result['quantity']} "
                         f"{result['unit']} of "
                         f"{result['product_name']} "
                         f"in stock."
+
                     )
 
 
@@ -657,17 +855,7 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "3. Executing receive stock tool..."
-                )
-
-                print(
-                    "Product:",
-                    product_name
-                )
-
-                print(
-                    "Quantity:",
-                    quantity
+                    "4. Executing receive stock tool..."
                 )
 
 
@@ -678,15 +866,15 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
+
                         f"Received "
                         f"{result['quantity_received']} "
                         f"{result['unit']} of "
@@ -695,6 +883,7 @@ def ask_agent(user_message: str) -> str:
                         f"Current stock: "
                         f"{result['current_stock']} "
                         f"{result['unit']}."
+
                     )
 
 
@@ -711,7 +900,7 @@ def ask_agent(user_message: str) -> str:
             elif tool_name == "start_bill_tool":
 
                 print(
-                    "3. Executing start bill tool..."
+                    "4. Executing start bill tool..."
                 )
 
 
@@ -719,15 +908,15 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
+
                         "🧾 New bill started.\n\n"
 
                         f"Bill ID: "
@@ -735,6 +924,7 @@ def ask_agent(user_message: str) -> str:
 
                         "Tell me the products and "
                         "quantities to add."
+
                     )
 
 
@@ -764,7 +954,7 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "3. Executing add-to-current-bill tool..."
+                    "4. Executing add-to-current-bill tool..."
                 )
 
                 print(
@@ -785,15 +975,15 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
+
                         f"✅ Added to bill "
                         f"#{result['bill_id']}\n\n"
 
@@ -812,6 +1002,7 @@ def ask_agent(user_message: str) -> str:
 
                         f"Current total: ₹"
                         f"{result['total']}"
+
                     )
 
 
@@ -841,17 +1032,7 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "3. Executing update bill item tool..."
-                )
-
-                print(
-                    "Product:",
-                    product_name
-                )
-
-                print(
-                    "New quantity:",
-                    quantity
+                    "4. Executing update bill item tool..."
                 )
 
 
@@ -862,15 +1043,15 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
+
                         f"✏️ Updated "
                         f"{result['product_name']} "
                         f"to {result['quantity']} "
@@ -878,6 +1059,7 @@ def ask_agent(user_message: str) -> str:
 
                         f"Current total: ₹"
                         f"{result['total']}"
+
                     )
 
 
@@ -901,12 +1083,7 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "3. Executing remove bill item tool..."
-                )
-
-                print(
-                    "Product:",
-                    product_name
+                    "4. Executing remove bill item tool..."
                 )
 
 
@@ -916,15 +1093,15 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
+
                         f"🗑️ Removed "
                         f"{result['product_name']} "
                         f"from bill "
@@ -932,6 +1109,7 @@ def ask_agent(user_message: str) -> str:
 
                         f"Current total: ₹"
                         f"{result['total']}"
+
                     )
 
 
@@ -948,7 +1126,7 @@ def ask_agent(user_message: str) -> str:
             elif tool_name == "get_current_bill_tool":
 
                 print(
-                    "3. Executing current bill tool..."
+                    "4. Executing current bill tool..."
                 )
 
 
@@ -956,10 +1134,9 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if not result.get("success"):
@@ -971,8 +1148,10 @@ def ask_agent(user_message: str) -> str:
 
 
                 response_text = (
+
                     f"🧾 Bill "
                     f"#{result['bill_id']}\n\n"
+
                 )
 
 
@@ -993,15 +1172,18 @@ def ask_agent(user_message: str) -> str:
                     for item in items:
 
                         response_text += (
+
                             f"• "
                             f"{item['quantity']} "
                             f"{item['unit']} "
                             f"{item['product_name']} "
                             f"@ ₹{item['unit_price']}\n"
+
                         )
 
 
                 response_text += (
+
                     "\n"
 
                     f"Subtotal: ₹"
@@ -1018,6 +1200,7 @@ def ask_agent(user_message: str) -> str:
 
                     f"Total: ₹"
                     f"{result['total']}"
+
                 )
 
 
@@ -1026,8 +1209,10 @@ def ask_agent(user_message: str) -> str:
                 ):
 
                     response_text += (
+
                         "\nPayment: "
                         f"{result['payment_method']}"
+
                     )
 
 
@@ -1048,12 +1233,7 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "3. Executing bill payment tool..."
-                )
-
-                print(
-                    "Payment:",
-                    payment_method
+                    "4. Executing bill payment tool..."
                 )
 
 
@@ -1063,15 +1243,15 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
+
                         "💳 Payment method set to "
                         f"{result['payment_method'].upper()}.\n\n"
 
@@ -1080,6 +1260,7 @@ def ask_agent(user_message: str) -> str:
 
                         "Say 'finalize bill' "
                         "to complete the sale."
+
                     )
 
 
@@ -1096,7 +1277,7 @@ def ask_agent(user_message: str) -> str:
             elif tool_name == "finalize_current_bill_tool":
 
                 print(
-                    "3. Executing finalize current bill tool..."
+                    "4. Executing finalize current bill tool..."
                 )
 
 
@@ -1104,15 +1285,15 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
+
                         f"✅ Bill "
                         f"#{result['bill_id']} "
                         "finalized successfully!\n\n"
@@ -1136,6 +1317,7 @@ def ask_agent(user_message: str) -> str:
                         f"{result['payment_method'].upper()}\n\n"
 
                         "📦 Stock has been updated."
+
                     )
 
 
@@ -1159,12 +1341,7 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "3. Executing customer balance tool..."
-                )
-
-                print(
-                    "Customer:",
-                    customer_name
+                    "4. Executing customer balance tool..."
                 )
 
 
@@ -1174,20 +1351,21 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
+
                         f"📒 "
                         f"{result['customer_name']}'s Khata\n\n"
 
                         f"Outstanding balance: ₹"
                         f"{result['balance']}"
+
                     )
 
 
@@ -1217,17 +1395,7 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "3. Executing Khata payment tool..."
-                )
-
-                print(
-                    "Customer:",
-                    customer_name
-                )
-
-                print(
-                    "Amount:",
-                    amount
+                    "4. Executing Khata payment tool..."
                 )
 
 
@@ -1238,15 +1406,15 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
+
                         "💰 Khata payment recorded!\n\n"
 
                         f"Customer: "
@@ -1254,6 +1422,7 @@ def ask_agent(user_message: str) -> str:
 
                         f"Amount paid: ₹"
                         f"{result['amount']}"
+
                     )
 
 
@@ -1277,12 +1446,7 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "3. Executing invoice generation tool..."
-                )
-
-                print(
-                    "Bill ID:",
-                    bill_id
+                    "4. Executing invoice generation tool..."
                 )
 
 
@@ -1292,17 +1456,18 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
-                        f"__INVOICE__:"
+
+                        "__INVOICE__:"
                         f"{result['pdf_path']}"
+
                     )
 
 
@@ -1319,7 +1484,7 @@ def ask_agent(user_message: str) -> str:
             elif tool_name == "generate_weekly_analysis_deck_tool":
 
                 print(
-                    "3. Executing weekly analysis deck tool..."
+                    "4. Executing weekly analysis deck tool..."
                 )
 
 
@@ -1329,17 +1494,18 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
-                        f"__ANALYSIS_DECK__:"
+
+                        "__ANALYSIS_DECK__:"
                         f"{result['file_path']}"
+
                     )
 
 
@@ -1385,28 +1551,7 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "3. Executing legacy "
-                    "sell product tool..."
-                )
-
-                print(
-                    "Product:",
-                    product_name
-                )
-
-                print(
-                    "Quantity:",
-                    quantity
-                )
-
-                print(
-                    "Payment:",
-                    payment_method
-                )
-
-                print(
-                    "Customer:",
-                    customer_name
+                    "4. Executing legacy sell product tool..."
                 )
 
 
@@ -1419,10 +1564,9 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
@@ -1435,12 +1579,15 @@ def ask_agent(user_message: str) -> str:
                     ):
 
                         customer_text = (
+
                             "\nCustomer: "
                             f"{result['customer_name']}"
+
                         )
 
 
                     return (
+
                         "🧾 Sale completed!\n\n"
 
                         f"Product: "
@@ -1469,6 +1616,7 @@ def ask_agent(user_message: str) -> str:
 
                         f"Bill ID: "
                         f"{result['bill_id']}"
+
                     )
 
 
@@ -1485,7 +1633,7 @@ def ask_agent(user_message: str) -> str:
             elif tool_name == "get_today_sales_tool":
 
                 print(
-                    "3. Executing daily sales tool..."
+                    "4. Executing daily sales tool..."
                 )
 
 
@@ -1493,15 +1641,15 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
+
                         "📊 Today's Sales\n\n"
 
                         f"Bills: "
@@ -1521,6 +1669,7 @@ def ask_agent(user_message: str) -> str:
 
                         f"📒 Credit: ₹"
                         f"{result['credit_sales']}"
+
                     )
 
 
@@ -1537,7 +1686,7 @@ def ask_agent(user_message: str) -> str:
             elif tool_name == "get_day_close_tool":
 
                 print(
-                    "3. Executing day close tool..."
+                    "4. Executing day close tool..."
                 )
 
 
@@ -1545,10 +1694,9 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if not result.get("success"):
@@ -1572,6 +1720,7 @@ def ask_agent(user_message: str) -> str:
 
 
                 response_text = (
+
                     f"🌙 Day Close — "
                     f"{result['date']}\n\n"
 
@@ -1615,12 +1764,14 @@ def ask_agent(user_message: str) -> str:
 
                     f"Payments received: ₹"
                     f"{result['khata_payments_today']}\n\n"
+
                 )
 
 
                 if best_selling:
 
                     response_text += (
+
                         "🏆 BEST SELLING PRODUCT\n"
 
                         f"{best_selling['product_name']} — "
@@ -1628,13 +1779,16 @@ def ask_agent(user_message: str) -> str:
                         f"{best_selling['quantity']} "
 
                         f"{best_selling['unit']}\n\n"
+
                     )
 
                 else:
 
                     response_text += (
+
                         "🏆 BEST SELLING PRODUCT\n"
                         "No sales recorded today.\n\n"
+
                     )
 
 
@@ -1648,6 +1802,7 @@ def ask_agent(user_message: str) -> str:
                     for product in low_stock:
 
                         response_text += (
+
                             f"⚠️ "
                             f"{product['product_name']}: "
 
@@ -1658,13 +1813,16 @@ def ask_agent(user_message: str) -> str:
                             f"(reorder at "
 
                             f"{product['reorder_level']})\n"
+
                         )
 
                 else:
 
                     response_text += (
+
                         "✅ No products are below "
                         "their reorder level.\n"
+
                     )
 
 
@@ -1696,17 +1854,7 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "3. Saving owner preference..."
-                )
-
-                print(
-                    "Key:",
-                    key
-                )
-
-                print(
-                    "Value:",
-                    value
+                    "4. Saving owner preference..."
                 )
 
 
@@ -1717,19 +1865,20 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
+
                         "🧠 Preference remembered!\n\n"
 
                         f"{result['key']}: "
                         f"{result['value']}"
+
                     )
 
 
@@ -1753,12 +1902,7 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "3. Getting owner preference..."
-                )
-
-                print(
-                    "Key:",
-                    key
+                    "4. Getting owner preference..."
                 )
 
 
@@ -1768,17 +1912,18 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
+
                         f"🧠 {result['key']}: "
                         f"{result['value']}"
+
                     )
 
 
@@ -1795,7 +1940,7 @@ def ask_agent(user_message: str) -> str:
             elif tool_name == "get_owner_preferences":
 
                 print(
-                    "3. Getting owner preferences..."
+                    "4. Getting owner preferences..."
                 )
 
 
@@ -1803,17 +1948,18 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if not result.get("success"):
 
                     return (
+
                         "I couldn't retrieve "
                         "your preferences."
+
                     )
 
 
@@ -1826,8 +1972,10 @@ def ask_agent(user_message: str) -> str:
                 if not preferences:
 
                     return (
+
                         "🧠 You don't have any "
                         "saved preferences yet."
+
                     )
 
 
@@ -1839,8 +1987,10 @@ def ask_agent(user_message: str) -> str:
                 for preference in preferences:
 
                     response_text += (
+
                         f"• {preference['key']}: "
                         f"{preference['value']}\n"
+
                     )
 
 
@@ -1861,12 +2011,7 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "3. Deleting owner preference..."
-                )
-
-                print(
-                    "Key:",
-                    key
+                    "4. Deleting owner preference..."
                 )
 
 
@@ -1876,17 +2021,18 @@ def ask_agent(user_message: str) -> str:
 
 
                 print(
-                    "4. Tool result:"
+                    "5. Tool result:",
+                    result
                 )
-
-                print(result)
 
 
                 if result.get("success"):
 
                     return (
+
                         f"🗑️ Preference "
                         f"'{key}' deleted."
+
                     )
 
 
@@ -1895,6 +2041,15 @@ def ask_agent(user_message: str) -> str:
                     "I couldn't delete "
                     "that preference."
                 )
+
+
+    # ============================================================
+    # NORMAL TEXT RESPONSE
+    # ============================================================
+
+    if getattr(response.message, "content", None):
+
+        return response.message.content
 
 
     # ============================================================
