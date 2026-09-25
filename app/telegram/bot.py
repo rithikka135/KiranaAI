@@ -1,4 +1,6 @@
 import os
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from dotenv import load_dotenv
 from telegram import Update
@@ -22,6 +24,44 @@ from app.services.telegram_idempotency_service import (
 load_dotenv()
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+PORT = int(os.getenv("PORT", "10000"))
+
+
+# ------------------------------------------------
+# RENDER HEALTH SERVER
+# ------------------------------------------------
+
+class HealthHandler(BaseHTTPRequestHandler):
+
+    def do_GET(self):
+
+        self.send_response(200)
+        self.send_header(
+            "Content-type",
+            "text/plain",
+        )
+        self.end_headers()
+
+        self.wfile.write(
+            b"KiranaAI Telegram bot is running."
+        )
+
+    def log_message(self, format, *args):
+        return
+
+
+def start_health_server():
+
+    server = HTTPServer(
+        ("0.0.0.0", PORT),
+        HealthHandler,
+    )
+
+    print(
+        f"Health server running on port {PORT}"
+    )
+
+    server.serve_forever()
 
 
 async def start(
@@ -339,6 +379,17 @@ def main():
         raise ValueError(
             "TELEGRAM_BOT_TOKEN is not configured."
         )
+
+    # ------------------------------------------------
+    # START RENDER HEALTH SERVER
+    # ------------------------------------------------
+
+    health_thread = threading.Thread(
+        target=start_health_server,
+        daemon=True,
+    )
+
+    health_thread.start()
 
     application = (
         Application.builder()
