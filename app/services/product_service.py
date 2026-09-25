@@ -14,6 +14,7 @@ def create_product(
     selling_price: Decimal,
     cost_price: Decimal,
     gst_rate: Decimal,
+    hsn_code: str | None = None,
 ) -> Product:
 
     product = Product(
@@ -24,6 +25,7 @@ def create_product(
         selling_price=selling_price,
         cost_price=cost_price,
         gst_rate=gst_rate,
+        hsn_code=hsn_code,
         is_active=True,
     )
 
