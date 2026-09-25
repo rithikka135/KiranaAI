@@ -4,8 +4,6 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     SimpleDocTemplate,
     Paragraph,
@@ -22,25 +20,11 @@ from app.models.customer import Customer
 
 
 # -------------------------------------------------
-# REGISTER WINDOWS ARIAL FONT
+# REPORTLAB BUILT-IN FONTS
 # -------------------------------------------------
 
-ARIAL_FONT = "Arial"
-ARIAL_BOLD_FONT = "Arial-Bold"
-
-pdfmetrics.registerFont(
-    TTFont(
-        ARIAL_FONT,
-        "C:/Windows/Fonts/arial.ttf"
-    )
-)
-
-pdfmetrics.registerFont(
-    TTFont(
-        ARIAL_BOLD_FONT,
-        "C:/Windows/Fonts/arialbd.ttf"
-    )
-)
+ARIAL_FONT = "Helvetica"
+ARIAL_BOLD_FONT = "Helvetica-Bold"
 
 
 def generate_invoice_pdf(bill_id: int) -> str:
