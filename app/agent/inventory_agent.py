@@ -42,6 +42,7 @@ from app.tools.billing_tools import sell_product_tool
 from app.tools.khata_tools import (
     check_customer_balance,
     create_customer,
+    add_customer_credit,
 )
 
 
@@ -536,6 +537,45 @@ def ask_agent(user_message: str) -> str:
         "What is Ravi's balance?\n"
         "How much does Ravi owe?\n\n"
 
+        "When the owner says that a customer bought something "
+        "on credit, owes money, or asks to add an amount to "
+        "the customer's Khata, ALWAYS use "
+        "add_customer_credit_tool.\n\n"
+
+        "If the owner provides only a total credit amount, "
+        "do NOT ask for individual items or quantities. "
+        "Add the provided total amount directly to the "
+        "customer's Khata balance.\n\n"
+
+        "IMPORTANT CREDIT RULE:\n"
+        "If the owner's message contains a customer name "
+        "and a credit amount, immediately call "
+        "add_customer_credit_tool.\n"
+        "Do NOT just say that you will add the credit.\n"
+        "Do NOT ask what items were bought.\n"
+        "Do NOT ask for quantities.\n"
+        "Do NOT ask whether the owner wants to log the total "
+        "amount.\n"
+        "The total amount provided by the owner is sufficient "
+        "to create the credit entry.\n\n"
+
+        "Examples:\n"
+        "Ravi bought ₹467 on credit -> call "
+        "add_customer_credit_tool with customer_name='Ravi' "
+        "and amount='467'.\n"
+
+        "Add ₹500 credit to Ravi -> call "
+        "add_customer_credit_tool with customer_name='Ravi' "
+        "and amount='500'.\n"
+
+        "Ravi owes 300 -> call "
+        "add_customer_credit_tool with customer_name='Ravi' "
+        "and amount='300'.\n"
+
+        "Add 250 to Priya's Khata -> call "
+        "add_customer_credit_tool with customer_name='Priya' "
+        "and amount='250'.\n\n"
+
         "When the owner says a customer paid money toward "
         "their Khata balance, use record_customer_payment.\n\n"
 
@@ -694,6 +734,53 @@ def ask_agent(user_message: str) -> str:
                         },
                         "required": [
                             "customer_name"
+                        ]
+                    }
+                }
+            },
+
+            {
+                "type": "function",
+                "function": {
+                    "name": "add_customer_credit_tool",
+                    "description": (
+                        "Adds an outstanding credit amount to a "
+                        "customer's Khata balance. Use this tool when "
+                        "the owner says a customer bought something on "
+                        "credit, owes money, or asks to add a credit "
+                        "amount to the customer's Khata. "
+                        "The customer must already exist. "
+                        "If the owner provides only a total amount, "
+                        "do not ask for individual items or quantities. "
+                        "Immediately call this tool when a customer "
+                        "name and credit amount are provided."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "customer_name": {
+                                "type": "string",
+                                "description": (
+                                    "The name of the customer."
+                                )
+                            },
+                            "amount": {
+                                "type": "string",
+                                "description": (
+                                    "The total credit amount, "
+                                    "for example '467'."
+                                )
+                            },
+                            "note": {
+                                "type": "string",
+                                "description": (
+                                    "Optional note about the credit."
+                                )
+                            }
+                        },
+                        "required": [
+                            "customer_name",
+                            "amount"
                         ]
                     }
                 }
@@ -1501,6 +1588,70 @@ def ask_agent(user_message: str) -> str:
                 return result.get(
                     "message",
                     "I couldn't create the customer."
+                )
+
+
+            # ====================================================
+            # ADD CUSTOMER CREDIT
+            # ====================================================
+
+            elif tool_name == "add_customer_credit_tool":
+
+                customer_name = (
+                    tool_call.function.arguments[
+                        "customer_name"
+                    ]
+                )
+
+                amount = (
+                    tool_call.function.arguments[
+                        "amount"
+                    ]
+                )
+
+                note = (
+                    tool_call.function.arguments.get(
+                        "note"
+                    )
+                )
+
+
+                print(
+                    "4. Executing add customer credit tool..."
+                )
+
+                print(
+                    "Customer:",
+                    customer_name
+                )
+
+                print(
+                    "Amount:",
+                    amount
+                )
+
+                print(
+                    "Note:",
+                    note
+                )
+
+
+                result = add_customer_credit(
+                    customer_name=customer_name,
+                    amount=amount,
+                    note=note,
+                )
+
+
+                print(
+                    "5. Tool result:",
+                    result
+                )
+
+
+                return result.get(
+                    "message",
+                    "I couldn't add the credit.",
                 )
 
 
