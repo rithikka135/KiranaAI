@@ -8,6 +8,7 @@ from app.models.bill import Bill, BillStatus
 from app.models.bill_item import BillItem
 from app.models.product import Product
 from app.models.customer import Customer
+from app.documents.invoice_generator import generate_invoice_pdf
 
 from app.services.billing_service import (
     create_bill,
@@ -476,8 +477,6 @@ def set_active_bill_payment(
             "There is no active bill."
         )
 
-    # Credit is allowed only when a customer
-    # has been attached to the bill.
     if payment_method == "credit":
 
         if bill.customer_id is None:
@@ -548,11 +547,13 @@ def finalize_active_bill(
 
     bill_id = bill.id
 
+    # Finalize the bill.
     finalized_bill = finalize_bill(
         db=db,
         bill_id=bill_id,
     )
 
+    # Remove the active bill session.
     session = get_active_session(
         db,
         session_key,
@@ -561,6 +562,12 @@ def finalize_active_bill(
     if session is not None:
         db.delete(session)
         db.commit()
+
+    # Generate GST invoice PDF after
+    # successful bill finalization.
+    invoice_path = generate_invoice_pdf(
+        bill_id=finalized_bill.id
+    )
 
     return {
         "success": True,
@@ -582,6 +589,10 @@ def finalize_active_bill(
         ),
         "total": str(
             finalized_bill.total
+        ),
+        "invoice_path": invoice_path,
+        "message": (
+            f"Bill #{finalized_bill.id} finalized successfully!"
         ),
     }
 
