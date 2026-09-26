@@ -2,6 +2,9 @@ import os
 import re
 
 from ollama import Client
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from app.database.connection import SessionLocal
 
