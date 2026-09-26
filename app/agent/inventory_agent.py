@@ -138,7 +138,6 @@ def is_greeting(user_message: str) -> bool:
 
     message = user_message.strip().lower()
 
-    # Remove common punctuation
     message = re.sub(
         r"[!,.?]+",
         "",
@@ -560,6 +559,7 @@ def ask_agent(user_message: str) -> str:
         "to create the credit entry.\n\n"
 
         "Examples:\n"
+
         "Ravi bought ₹467 on credit -> call "
         "add_customer_credit_tool with customer_name='Ravi' "
         "and amount='467'.\n"
@@ -578,18 +578,18 @@ def ask_agent(user_message: str) -> str:
 
 
         # ====================================================
-        # KHATA PAYMENT — STRENGTHENED
+        # KHATA PAYMENT
         # ====================================================
 
         "IMPORTANT KHATA PAYMENT RULES:\n\n"
 
         "When the owner says that an existing customer paid "
         "money toward their Khata balance, ALWAYS call "
-        "record_customer_payment.\n\n"
+        "record_customer_payment_tool.\n\n"
 
         "If the owner's message contains BOTH a customer name "
         "and a payment amount AND indicates that the customer "
-        "paid, immediately call record_customer_payment.\n\n"
+        "paid, immediately call record_customer_payment_tool.\n\n"
 
         "Words such as 'paid', 'payment', 'paid back', "
         "'gave me', 'gave', 'settled', 'cleared', "
@@ -611,31 +611,31 @@ def ask_agent(user_message: str) -> str:
 
         "Examples:\n"
 
-        "Ravi paid 200 -> call record_customer_payment with "
-        "customer_name='Ravi' and amount='200'.\n"
+        "Ravi paid 200 -> call record_customer_payment_tool "
+        "with customer_name='Ravi' and amount='200'.\n"
 
-        "Ravi paid ₹200 -> call record_customer_payment with "
-        "customer_name='Ravi' and amount='200'.\n"
+        "Ravi paid ₹200 -> call record_customer_payment_tool "
+        "with customer_name='Ravi' and amount='200'.\n"
 
         "Ravi paid 200 toward Khata -> call "
-        "record_customer_payment with customer_name='Ravi' "
-        "and amount='200'.\n"
+        "record_customer_payment_tool with "
+        "customer_name='Ravi' and amount='200'.\n"
 
         "Record 200 payment from Ravi -> call "
-        "record_customer_payment with customer_name='Ravi' "
-        "and amount='200'.\n"
-
-        "Priya paid 500 -> call record_customer_payment with "
-        "customer_name='Priya' and amount='500'.\n"
-
-        "Ravi gave me 200 -> call record_customer_payment with "
+        "record_customer_payment_tool with "
         "customer_name='Ravi' and amount='200'.\n"
 
-        "Ravi settled 200 -> call record_customer_payment with "
-        "customer_name='Ravi' and amount='200'.\n"
+        "Priya paid 500 -> call record_customer_payment_tool "
+        "with customer_name='Priya' and amount='500'.\n"
 
-        "Ravi cleared 200 -> call record_customer_payment with "
-        "customer_name='Ravi' and amount='200'.\n\n"
+        "Ravi gave me 200 -> call record_customer_payment_tool "
+        "with customer_name='Ravi' and amount='200'.\n"
+
+        "Ravi settled 200 -> call record_customer_payment_tool "
+        "with customer_name='Ravi' and amount='200'.\n"
+
+        "Ravi cleared 200 -> call record_customer_payment_tool "
+        "with customer_name='Ravi' and amount='200'.\n\n"
 
 
         # ====================================================
@@ -762,7 +762,46 @@ def ask_agent(user_message: str) -> str:
             # ----------------------------------------------------
 
             check_customer_balance,
-            record_customer_payment,
+
+            {
+                "type": "function",
+                "function": {
+                    "name": "record_customer_payment_tool",
+                    "description": (
+                        "Records a payment made by an existing "
+                        "customer toward their outstanding Khata "
+                        "balance. Use this tool whenever the owner "
+                        "says that a customer paid, paid back, "
+                        "settled, cleared, returned money, or made "
+                        "a payment toward Khata. The customer name "
+                        "and payment amount are sufficient. Do not "
+                        "ask for a bill number, customer ID, items, "
+                        "or quantities."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "customer_name": {
+                                "type": "string",
+                                "description": (
+                                    "The name of the existing customer."
+                                )
+                            },
+                            "amount": {
+                                "type": "string",
+                                "description": (
+                                    "The payment amount, "
+                                    "for example '200'."
+                                )
+                            }
+                        },
+                        "required": [
+                            "customer_name",
+                            "amount"
+                        ]
+                    }
+                }
+            },
 
             {
                 "type": "function",
@@ -1515,8 +1554,6 @@ def ask_agent(user_message: str) -> str:
                     )
 
 
-                    # If invoice was generated,
-                    # tell Telegram bot to send the PDF.
                     if invoice_path:
 
                         return (
@@ -1525,7 +1562,6 @@ def ask_agent(user_message: str) -> str:
                         )
 
 
-                    # Fallback if invoice path is missing.
                     return (
 
                         f"✅ Bill "
@@ -1712,7 +1748,7 @@ def ask_agent(user_message: str) -> str:
             # KHATA PAYMENT
             # ====================================================
 
-            elif tool_name == "record_customer_payment":
+            elif tool_name == "record_customer_payment_tool":
 
                 customer_name = (
                     tool_call.function.arguments[
@@ -2110,7 +2146,6 @@ def ask_agent(user_message: str) -> str:
                         f"{best_selling['product_name']} — "
 
                         f"{best_selling['quantity']} "
-
                         f"{best_selling['unit']}\n\n"
 
                     )
