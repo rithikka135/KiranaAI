@@ -5,7 +5,6 @@ from ollama import Client
 
 from app.database.connection import SessionLocal
 
-from app.tools.khata_tools import check_customer_balance
 from app.tools.khata_payment_tools import record_customer_payment
 from app.tools.invoice_tools import generate_invoice_tool
 from app.tools.sales_tools import get_today_sales_tool
@@ -39,6 +38,11 @@ from app.tools.product_tools import (
 )
 
 from app.tools.billing_tools import sell_product_tool
+
+from app.tools.khata_tools import (
+    check_customer_balance,
+    create_customer,
+)
 
 
 # ============================================================
@@ -505,6 +509,37 @@ def ask_agent(user_message: str) -> str:
 
 
         # ====================================================
+        # CUSTOMER KHATA
+        # ====================================================
+
+        "CUSTOMER KHATA RULES:\n\n"
+
+        "When the owner asks to add, create, or register "
+        "a new customer, use create_customer_tool.\n\n"
+
+        "Examples:\n"
+        "Add customer Ravi\n"
+        "Create customer Priya\n"
+        "Register customer Arun\n\n"
+
+        "When the owner asks for a customer's outstanding "
+        "balance, use check_customer_balance.\n\n"
+
+        "Examples:\n"
+        "Check Ravi balance\n"
+        "What is Ravi's balance?\n"
+        "How much does Ravi owe?\n\n"
+
+        "When the owner says a customer paid money toward "
+        "their Khata balance, use record_customer_payment.\n\n"
+
+        "Examples:\n"
+        "Ravi paid 200\n"
+        "Record 200 payment from Ravi\n"
+        "Ravi paid ₹500 toward Khata\n\n"
+ 
+
+        # ====================================================
         # WEEKLY ANALYSIS
         # ====================================================
 
@@ -629,6 +664,30 @@ def ask_agent(user_message: str) -> str:
 
             check_customer_balance,
             record_customer_payment,
+
+
+               {
+    "type": "function",
+    "function": {
+        "name": "create_customer_tool",
+        "description": (
+            "Create a new grocery store customer "
+            "using their name."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "customer_name": {
+                    "type": "string",
+                    "description": "The customer's name."
+                }
+            },
+            "required": [
+                "customer_name"
+            ]
+        }
+    }
+},
 
             # ----------------------------------------------------
             # Documents
@@ -1397,6 +1456,35 @@ def ask_agent(user_message: str) -> str:
                     "I couldn't find that customer."
                 )
 
+                        # ====================================================
+            # CREATE CUSTOMER
+            # ====================================================
+
+            elif tool_name == "create_customer_tool":
+
+                customer_name = (
+                    tool_call.function.arguments[
+                        "customer_name"
+                    ]
+                )
+
+                print(
+                    "4. Executing create customer tool..."
+                )
+
+                result = create_customer(
+                    customer_name
+                )
+
+                print(
+                    "5. Tool result:",
+                    result
+                )
+
+                return result.get(
+                    "message",
+                    "I couldn't create the customer."
+                )
 
             # ====================================================
             # KHATA PAYMENT
