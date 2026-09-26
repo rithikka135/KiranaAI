@@ -1030,6 +1030,14 @@ def ask_agent(user_message: str) -> str:
                     ]
                 )
 
+                product_name = re.sub(
+                    r"^(packet|packets|kg|kgs|gram|grams|g|"
+                    r"litre|litres|liter|liters|l)\s+",
+                    "",
+                    product_name,
+                    flags=re.IGNORECASE
+                ).strip()
+
 
                 print(
                     "4. Executing update bill item tool..."
