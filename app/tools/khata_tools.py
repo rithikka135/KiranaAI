@@ -56,3 +56,68 @@ def check_customer_balance(
 
     finally:
         db.close()
+
+
+def create_customer(
+    customer_name: str,
+) -> dict:
+
+    db = SessionLocal()
+
+    try:
+
+        customer_name = customer_name.strip()
+
+        if not customer_name:
+            return {
+                "success": False,
+                "message": "Customer name cannot be empty.",
+            }
+
+        existing_customer = (
+            db.query(Customer)
+            .filter(
+                Customer.name.ilike(customer_name),
+                Customer.is_active == True,
+            )
+            .first()
+        )
+
+        if existing_customer is not None:
+            return {
+                "success": False,
+                "message": (
+                    f"Customer '{existing_customer.name}' "
+                    "already exists."
+                ),
+            }
+
+        customer = Customer(
+            name=customer_name,
+        )
+
+        db.add(customer)
+        db.commit()
+        db.refresh(customer)
+
+        return {
+            "success": True,
+            "customer_id": customer.id,
+            "customer_name": customer.name,
+            "message": (
+                f"Customer '{customer.name}' "
+                "created successfully."
+            ),
+        }
+
+    except Exception as e:
+
+        db.rollback()
+
+        return {
+            "success": False,
+            "message": str(e),
+        }
+
+    finally:
+        db.close()
