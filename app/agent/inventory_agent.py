@@ -514,8 +514,14 @@ def ask_agent(user_message: str) -> str:
 
         "CUSTOMER KHATA RULES:\n\n"
 
-        "When the owner asks to add, create, or register "
-        "a new customer, use create_customer_tool.\n\n"
+        "When the owner asks to add, create, register, or save "
+        "a NEW customer, ALWAYS call create_customer_tool.\n"
+
+        "Do NOT respond that you do not have a customer creation "
+        "tool.\n"
+
+        "Do NOT ask for a customer ID, phone number, or initial "
+        "balance because only the customer name is required.\n\n"
 
         "Examples:\n"
         "Add customer Ravi\n"
@@ -537,7 +543,7 @@ def ask_agent(user_message: str) -> str:
         "Ravi paid 200\n"
         "Record 200 payment from Ravi\n"
         "Ravi paid ₹500 toward Khata\n\n"
- 
+
 
         # ====================================================
         # WEEKLY ANALYSIS
@@ -665,29 +671,33 @@ def ask_agent(user_message: str) -> str:
             check_customer_balance,
             record_customer_payment,
 
-
-               {
-    "type": "function",
-    "function": {
-        "name": "create_customer_tool",
-        "description": (
-            "Create a new grocery store customer "
-            "using their name."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "customer_name": {
-                    "type": "string",
-                    "description": "The customer's name."
+            {
+                "type": "function",
+                "function": {
+                    "name": "create_customer_tool",
+                    "description": (
+                        "Creates a new customer record in the grocery store "
+                        "customer ledger. Use this tool when the owner asks "
+                        "to add, create, register, or save a new customer. "
+                        "Only the customer name is required. Do not ask for "
+                        "a customer ID, phone number, or initial balance."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "customer_name": {
+                                "type": "string",
+                                "description": (
+                                    "The name of the new customer."
+                                )
+                            }
+                        },
+                        "required": [
+                            "customer_name"
+                        ]
+                    }
                 }
             },
-            "required": [
-                "customer_name"
-            ]
-        }
-    }
-},
 
             # ----------------------------------------------------
             # Documents
@@ -781,6 +791,7 @@ def ask_agent(user_message: str) -> str:
                 print(
                     "4. Executing create product tool..."
                 )
+
 
                 result = create_product_tool(
 
@@ -1337,7 +1348,7 @@ def ask_agent(user_message: str) -> str:
                 )
 
 
-                             # ====================================================
+            # ====================================================
             # FINALIZE BILL
             # ====================================================
 
@@ -1409,6 +1420,7 @@ def ask_agent(user_message: str) -> str:
                     "I couldn't finalize the bill."
                 )
 
+
             # ====================================================
             # CUSTOMER KHATA BALANCE
             # ====================================================
@@ -1456,7 +1468,8 @@ def ask_agent(user_message: str) -> str:
                     "I couldn't find that customer."
                 )
 
-                        # ====================================================
+
+            # ====================================================
             # CREATE CUSTOMER
             # ====================================================
 
@@ -1468,23 +1481,28 @@ def ask_agent(user_message: str) -> str:
                     ]
                 )
 
+
                 print(
                     "4. Executing create customer tool..."
                 )
 
+
                 result = create_customer(
                     customer_name
                 )
+
 
                 print(
                     "5. Tool result:",
                     result
                 )
 
+
                 return result.get(
                     "message",
                     "I couldn't create the customer."
                 )
+
 
             # ====================================================
             # KHATA PAYMENT
@@ -1918,7 +1936,6 @@ def ask_agent(user_message: str) -> str:
                             f"{product['product_name']}: "
 
                             f"{product['quantity']} "
-
                             f"{product['unit']} "
 
                             f"(reorder at "
