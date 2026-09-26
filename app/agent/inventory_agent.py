@@ -576,13 +576,66 @@ def ask_agent(user_message: str) -> str:
         "add_customer_credit_tool with customer_name='Priya' "
         "and amount='250'.\n\n"
 
-        "When the owner says a customer paid money toward "
-        "their Khata balance, use record_customer_payment.\n\n"
+
+        # ====================================================
+        # KHATA PAYMENT — STRENGTHENED
+        # ====================================================
+
+        "IMPORTANT KHATA PAYMENT RULES:\n\n"
+
+        "When the owner says that an existing customer paid "
+        "money toward their Khata balance, ALWAYS call "
+        "record_customer_payment.\n\n"
+
+        "If the owner's message contains BOTH a customer name "
+        "and a payment amount AND indicates that the customer "
+        "paid, immediately call record_customer_payment.\n\n"
+
+        "Words such as 'paid', 'payment', 'paid back', "
+        "'gave me', 'gave', 'settled', 'cleared', "
+        "'returned', or 'paid toward Khata' indicate a "
+        "Khata payment when a customer name and amount "
+        "are present.\n\n"
+
+        "IMPORTANT:\n"
+        "Do NOT treat these messages as normal conversation.\n"
+        "Do NOT answer without calling the tool.\n"
+        "Do NOT ask what items were purchased.\n"
+        "Do NOT ask for a bill number.\n"
+        "Do NOT ask for a customer ID.\n"
+        "Do NOT ask for any additional information when "
+        "customer name and payment amount are provided.\n\n"
+
+        "The customer name and payment amount are sufficient "
+        "to record the Khata payment.\n\n"
 
         "Examples:\n"
-        "Ravi paid 200\n"
-        "Record 200 payment from Ravi\n"
-        "Ravi paid ₹500 toward Khata\n\n"
+
+        "Ravi paid 200 -> call record_customer_payment with "
+        "customer_name='Ravi' and amount='200'.\n"
+
+        "Ravi paid ₹200 -> call record_customer_payment with "
+        "customer_name='Ravi' and amount='200'.\n"
+
+        "Ravi paid 200 toward Khata -> call "
+        "record_customer_payment with customer_name='Ravi' "
+        "and amount='200'.\n"
+
+        "Record 200 payment from Ravi -> call "
+        "record_customer_payment with customer_name='Ravi' "
+        "and amount='200'.\n"
+
+        "Priya paid 500 -> call record_customer_payment with "
+        "customer_name='Priya' and amount='500'.\n"
+
+        "Ravi gave me 200 -> call record_customer_payment with "
+        "customer_name='Ravi' and amount='200'.\n"
+
+        "Ravi settled 200 -> call record_customer_payment with "
+        "customer_name='Ravi' and amount='200'.\n"
+
+        "Ravi cleared 200 -> call record_customer_payment with "
+        "customer_name='Ravi' and amount='200'.\n\n"
 
 
         # ====================================================
